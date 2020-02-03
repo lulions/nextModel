@@ -1,0 +1,201 @@
+---
+title: "Kmeans"
+output:
+  html_document:
+    df_print: paged
+editor_options: 
+  chunk_output_type: console
+---
+
+# Use and Applications
+
+Kmeans (MacQueen, 1967) is a a process for partitioning an N-dimensional population into k sets on the basis of a sample. The most relevant application is **clustering** or similarity grouping. In this case the objective is not to find some unique, definitive grouping, but rather to simply aid the investigator in obtaining qualitative and quantitative **understanding of large amounts** of N-dimensional data by providing him with reasonably good similarity groups. The method should be used in close interaction with **theory and intuition**. Other applications include: classification, approximating a general distribution, scrambled dimension test for independence among several variables, distance-based classification trees, lossy image compression.
+
+# Theory
+
+Kmeans is an iterative algorithm that tries to partition the dataset into **K pre-defined** distinct non-overlapping subgroups. It tries to make the inter-cluster data points as similar as possible while also keeping the clusters as different as possible. It assigns data points to a cluster such that the **sum of the squared distance** between the data points and the cluster’s centroid (arithmetic mean of all the data points that belong to that cluster) is at the minimum.
+
+1. Specify **number of clusters** K.
+2. **Initialize centroids** by first shuffling the dataset and then randomly selecting K data points for the centroids without replacement.
+3. Keep iterating until there is no change to the centroids (convergence). i.e assignment of data points to clusters isn’t changing (or when a pre-defined maximum number of iterations is done). The approach is called **Expectation-Maximization**:
+    * Compute the sum of the squared distance between data points and all centroids.
+    * Assign each data point to the closest cluster (centroid).
+    * Compute the centroids for the clusters by taking the average of the all data points that belong to each cluster.
+
+Notes:  
+
+- Standardize data when features are expressed in different units
+- Use different initializations of centroids and pick the results of the run that that yielded the lower sum of squared distance (at each run results can be different because they can be **local optima, not global**)
+
+Drawbacks:  
+
+- Good in capturing structure of the data if clusters have a **spherical-like shape**: we can use kernel methods to transform to higher dimensional representation that make the data linearly separable
+- Does not learn the number of clusters by itself
+- Gives more weight to the bigger clusters
+- Does not have an intrinsic measure for uncertainty for the examples belong to the overlapping region
+
+Evaluation:  
+
+- Elbow method: line plot different values of K vs SSE
+- Silhouette analysis: for each point compute $\frac{b_i-a_i}{max(a_i, b_i)}$, where $a_i$ is the average distance from all data points in the same cluster and $b_i$ the average distance from all data points in the closest cluster.
+ 
+# Examples with R
+
+```{r, message=FALSE}
+
+require(readr)
+require(dplyr)
+require(tidyr)
+require(stringr)
+require(ggplot2)
+
+```
+
+I use the famous __iris__ dataset to demonstrate the basic usage of __kmeans__ function in __stat__ package. From an exploratory bivariate graphical analysis it seems that petal length and width discriminate well between species as it can be seen from the scatter plot below.
+
+
+```{r, fig.align='center'}
+
+df <- iris
+
+ggplot(df, aes(Petal.Length, Petal.Width, col = Species)) +
+  geom_point()
+
+```
+
+Fitting a kmeans model setting k = 3 (using the prior information about species) produces 3 clusters very similar to the actual species.
+
+```{r, fig.align='center'}
+
+df <- df %>% select(Petal.Length, Petal.Width)
+
+# fitting kmeans
+fm <- kmeans(df, centers = 3)
+
+# bind cluster association
+df <- df %>% bind_cols(tibble(cluster = as.character(fm$cluster)))
+
+ggplot(df, aes(Petal.Length, Petal.Width, col = cluster)) +
+  geom_point()
+
+```
+
+
+```{r, eval=FALSE, echo=FALSE}
+
+data <- './italy_risk.csv'
+data <- read_delim(data, delim = ',')
+data_sel <- data %>% select(DZCOM, IVSM, VECCH, IDR_AREAP3, PAI_AREAP3_P4, SUP) %>% 
+  mutate(IDR_AREAP3 = as.numeric(str_replace(IDR_AREAP3, ',', '\\.'))/SUP,
+         PAI_AREAP3_P4 = as.numeric(str_replace(PAI_AREAP3_P4, ',', '\\.'))/SUP)
+
+ggplot(data_sel, aes(PAI_AREAP3_P4, IDR_AREAP3)) +
+  geom_point()
+
+```
+
+## Image compression
+
+Original picture
+
+```{r, fig.align='center', message=FALSE}
+
+require(imager)
+
+# Load pic
+img <- load.image("../data/city.jpeg")
+dim_img <- dim(img)
+
+plot(img)
+
+```
+
+Compressed picture with 10 colors
+
+```{r, fig.align='center', message=FALSE, warning=FALSE}
+
+# Make dataframe
+df_img <- as.data.frame(img) 
+
+df_img <- df_img %>% 
+  spread(cc, value)
+
+df_coord <- df_img %>% select(x, y)
+df <- df_img %>% select(`1`, `2`, `3`)
+
+# perfom K-means
+k <- 10
+max_iter <- 100
+fm <- kmeans(df, centers = k, iter.max = max_iter, nstart = 1)
+
+df <- df %>% bind_cols(tibble(cluster = as.character(fm$cluster)))
+
+df_kmeans <- as.data.frame(fm$centers) %>% 
+  bind_cols(tibble(cluster = as.character(seq_len(nrow(fm$centers)))))
+
+df <- df %>% 
+  select(cluster) %>% 
+  inner_join(df_kmeans, by = 'cluster') %>% 
+  select(-cluster)
+
+df <- df_coord %>% bind_cols(df)
+
+df <- df %>% 
+  gather('cc', 'value', -x, -y)
+
+df <- df %>% 
+  arrange(cc, y, x) %>% 
+  select(x, y, cc, value) %>% 
+  mutate(cc = as.numeric(cc))
+
+img <- as.cimg(df, dims = dim_img)
+
+# Plot
+plot(img)
+
+```
+
+Compressed picture with 3 colors
+
+```{r, fig.align='center', echo=FALSE, message=FALSE, warning=FALSE}
+
+# Make dataframe
+df_img <- as.data.frame(img) 
+
+df_img <- df_img %>% 
+  spread(cc, value)
+
+df_coord <- df_img %>% select(x, y)
+df <- df_img %>% select(`1`, `2`, `3`)
+
+# perfom K-means
+k <- 3
+max_iter <- 100
+fm <- kmeans(df, centers = k, iter.max = max_iter, nstart = 1)
+
+df <- df %>% bind_cols(tibble(cluster = as.character(fm$cluster)))
+
+df_kmeans <- as.data.frame(fm$centers) %>% 
+  bind_cols(tibble(cluster = as.character(seq_len(nrow(fm$centers)))))
+
+df <- df %>% 
+  select(cluster) %>% 
+  inner_join(df_kmeans, by = 'cluster') %>% 
+  select(-cluster)
+
+df <- df_coord %>% bind_cols(df)
+
+df <- df %>% 
+  gather('cc', 'value', -x, -y)
+
+df <- df %>% 
+  arrange(cc, y, x) %>% 
+  select(x, y, cc, value) %>% 
+  mutate(cc = as.numeric(cc))
+
+img <- as.cimg(df, dims = dim_img)
+
+# Plot
+plot(img)
+
+```
